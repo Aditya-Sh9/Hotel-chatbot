@@ -7,9 +7,12 @@ import gradio as gr
 from datetime import datetime
 from dotenv import load_dotenv
 import os
+from streamlit.components.v1 import html
 
 load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+OPENWEATHER_API_KEY = "422ad25405fe35755a3906cf0bb88ea7"
 
 # Page configuration with travel theme
 st.set_page_config(
@@ -19,10 +22,74 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Add this near your other CSS/JS
+st.markdown("""
+<script>
+function makeHotelCardsClickable() {
+    document.querySelectorAll('.hotel-card').forEach(card => {
+        const hotelName = card.querySelector('h4').innerText;
+        const city = document.querySelector('h1').innerText.replace('✈️ Travel Companion', '').trim();
+        card.style.cursor = 'pointer';
+        card.addEventListener('click', () => {
+            const query = encodeURIComponent(`${hotelName} ${city} hotel`);
+            window.open(`https://www.google.com/travel/hotels?q=${query}`, '_blank');
+        });
+    });
+}
+
+// Run when page loads and after Streamlit updates
+document.addEventListener('DOMContentLoaded', makeHotelCardsClickable);
+document.addEventListener('st:render', makeHotelCardsClickable);
+</script>
+""", unsafe_allow_html=True)
+
 # Custom CSS with travel-themed gradients and animations
 st.markdown("""
     <style>
             
+        /* New styles for microphone button integration */
+        [data-testid="stTextInput"] {
+            position: relative !important;
+        }
+        
+        [data-testid="stTextInput"] input {
+            padding-right: 40px !important;
+        }
+        
+        .mic-btn {
+            position: absolute !important;
+            right: 5px !important;  /* Increased from 12px for more left movement */
+            top: 70% !important;     /* Changed from 50% to move it down */
+            transform: translateY(-50%) !important;
+            background: transparent !important;
+            border: none !important;
+            color: #06B6D4 !important;
+            cursor: pointer !important;
+            font-size: 16px !important;
+            padding: 8px !important;
+            z-index: 2 !important;
+            transition: color 0.3s ease !important;
+        }
+        
+        .mic-btn:hover {
+            color: #0EA5E9 !important;
+        }
+        
+        .mic-btn i {
+            display: block !important;
+        }
+        
+        /* Adjust for mobile view */
+        @media (max-width: 768px) {
+            [data-testid="stTextInput"] input {
+                padding-right: 35px !important;
+            }
+            
+            .mic-btn {
+                right: 8px !important;
+                font-size: 14px !important;
+            }
+        }
 
         /* Footer styling */
         .footer {
@@ -163,8 +230,9 @@ st.markdown("""
             
         /* Main background gradient */
         .stApp {
-            background: #0F172A;
+            background: linear-gradient(135deg, #0F172A 0%, #1E293B 100%) !important;
             color: #E2E8F0;
+            background-attachment: fixed;
         }
         
         
@@ -220,14 +288,15 @@ st.markdown("""
             padding: 1.5rem;
             border-radius: 0.8rem;
             margin-bottom: 1.5rem;
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
             position: relative;
             overflow: hidden;
             border: none;
+            transition: all 0.5s cubic-bezier(0.25, 0.8, 0.25, 1);
+            perspective: 1000px;
         }
         .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.3);
+            transform: translateY(-10px) rotateX(5deg);
+            box-shadow: 0 15px 30px rgba(6, 182, 212, 0.3) !important;
         }
         .card::before {
             content: '';
@@ -255,6 +324,34 @@ st.markdown("""
         .activity-card::before {
             background: linear-gradient(90deg, #43e97b 0%, #38f9d7 100%);
         }
+            
+        .weather-card {
+            background: rgba(30, 41, 59, 0.9);
+            border-radius: 10px;
+            padding: 1rem;
+            border: 1px solid rgba(6, 182, 212, 0.3);
+            backdrop-filter: blur(4px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-top: 10px;
+        }
+        
+        .weather-card h2 {
+            font-weight: 500;
+            line-height: 1.2;
+        }
+        
+        /* Font Awesome icons */
+        .fas {
+            font-size: 0.8em;
+        }
+        
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .weather-card {
+                padding: 0.75rem;
+            }
+        }
+            
         
         /* Rating stars */
         .rating {
@@ -311,6 +408,7 @@ st.markdown("""
         
         /* Map container */
         .stMap {
+            margin-top: 5px;
             border: 1px solid #334155;
             border-radius: 0.8rem;
             overflow: hidden;
@@ -331,7 +429,7 @@ st.markdown("""
                 font-size: 0.9rem;
             }
         }
-    </style>
+    </style> <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
 """, unsafe_allow_html=True)
 
 # Title with travel theme
@@ -395,14 +493,118 @@ with st.sidebar:
             </div>
         """, unsafe_allow_html=True)
 # Search section with travel vibe
+from streamlit.components.v1 import html
+
 with st.container():
+
+    
+    # ✅ 1. Real Streamlit input (binds to Python variable)
     query = st.text_input(
         "Where would you like to travel?",
         placeholder="e.g. 'Beach resorts in Bali' or 'Historic sites in Rome'",
         key="search_input"
     )
+
+    # ✅ 2. Inject mic button to fill that input using voice
+    html("""
+        <script>
+            function injectMic() {
+                const container = window.parent.document.querySelector('[data-testid="stTextInput"]');
+                if (!container || container.querySelector('.mic-btn')) return;
+
+                const micBtn = document.createElement('button');
+                micBtn.className = 'mic-btn';
+                micBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+                micBtn.title = 'Click to speak';
+
+                Object.assign(micBtn.style, {
+                    position: 'absolute',
+                    right: '10px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'none',
+                    border: 'none',
+                    fontSize: '1.2rem',
+                    color: '#06B6D4',
+                    cursor: 'pointer',
+                    zIndex: 10,
+                    padding: '0',
+                    margin: '0',
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                });
+
+                micBtn.onclick = () => {
+                    const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+                    recognition.lang = 'en-US';
+                    recognition.continuous = false;
+                    recognition.interimResults = false;
+
+                    recognition.onresult = function(event) {
+                        let transcript = event.results[0][0].transcript.trim();
+                        if (transcript.endsWith(".")) transcript = transcript.slice(0, -1);
+                    
+                        const input = container.querySelector('input');
+                    
+                        // Set input value
+                        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+                        setter.call(input, transcript);
+                    
+                        // Trigger React's input + focus/blur detection
+                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                        input.focus();     // 👈 Force focus
+                        input.blur();      // 👈 Force blur (Streamlit updates Python state here)
+                    };
+
+
+                    recognition.onerror = () => {
+                        alert("Speech recognition failed.");
+                    };
+
+                    recognition.start();
+                };
+
+                container.style.position = 'relative';
+                container.appendChild(micBtn);
+            }
+
+            document.addEventListener('DOMContentLoaded', injectMic);
+            document.addEventListener('st:render', injectMic);
+        </script>
+    """, height=0)
+
+    # ✅ 3. Regular search button — manually clicked
     search_btn = st.button("Explore Now", type="primary", use_container_width=True)
+
+
 # API functions (same as before)
+def get_weather(lat, lon):
+    """Fetch current weather data"""
+    base_url = "https://api.openweathermap.org/data/2.5/weather"
+    params = {
+        'lat': lat,
+        'lon': lon,
+        'appid': OPENWEATHER_API_KEY,
+        'units': 'metric'  # For Celsius (use 'imperial' for Fahrenheit)
+    }
+    
+    try:
+        response = requests.get(base_url, params=params)
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                'temp': data['main']['temp'],
+                'feels_like': data['main']['feels_like'],
+                'humidity': data['main']['humidity'],
+                'weather': data['weather'][0]['main'],
+                'icon': data['weather'][0]['icon']
+            }
+        return None
+    except Exception as e:
+        st.error(f"Weather API error: {str(e)}")
+        return None
 def get_location(city):
     location_url = f"https://maps.googleapis.com/maps/api/geocode/json?address={urllib.parse.quote(city)}&key={GOOGLE_API_KEY}"
     res = requests.get(location_url).json()
@@ -451,6 +653,7 @@ if (query and search_btn) or (query and st.session_state.last_search != query):
             st.success(f"✨ Found amazing places in **{city.capitalize()}**")
             # Create tabs with travel icons
             tab1, tab2, tab3, tab4 = st.tabs(["🏨 Hotels", "🗼 Attractions", "🎭 Activities", "🗺️ Map View"])
+            # In your hotels tab section (around line 340), modify the hotel card display code:
             with tab1:
                 if hotels:
                     st.markdown(f'<h3 style="text-align: center; color: #E2E8F0; margin-bottom: 1rem;">Top Hotels in {city.title()}</h3>', unsafe_allow_html=True)
@@ -458,20 +661,54 @@ if (query and search_btn) or (query and st.session_state.last_search != query):
                         name = hotel["name"]
                         address = hotel.get("vicinity", "Address not available")
                         rating = hotel.get("rating", "N/A")
-                        price_level = hotel.get("price_level", "N/A")
-                        price_icons = "💲" * price_level if isinstance(price_level, int) else ""
+                        price_level = hotel.get("price_level", None)  # Get price level (1-4)
+
+                        # Handle price display
+                        if price_level is None:
+                            price_display = "💰 Price N/A"
+                        else:
+                            price_display = "💲" * price_level + "🔹" * (4 - price_level)  # Filled and empty indicators
+
+                        # Create booking URL
+                        search_query = urllib.parse.quote_plus(f"{name} {city} hotel")
+                        booking_url = f"https://www.google.com/travel/hotels?q={search_query}"
+
                         st.markdown(f"""
-                            <div class="card hotel-card">
-                                <h4 style="color: #28282B;">{name}</h4>
-                                <p style="color: #94A3B8;">📍 {address}</p>
+                            <div class="card hotel-card" style="position: relative;">
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                                    <p style="color: #94A3B8;">⭐ <span class="rating">{rating}</span>/5</p>
-                                    <p>{price_icons}</p>
+                                    <div style="flex: 1;">
+                                        <h4 style="color: #28282B; margin-bottom: 8px;">{name}</h4>
+                                        <p style="color: #94A3B8; margin: 4px 0; font-size: 0.9rem;">📍 {address}</p>
+                                        <div style="display: flex; align-items: center; gap: 12px; margin-top: 8px;">
+                                            <span style="color: #94A3B8; font-size: 0.9rem;">
+                                                ⭐ <span class="rating">{rating}</span>/5
+                                            </span>
+                                            <span style="color: #06B6D4; font-size: 0.9rem; font-weight: 500;">
+                                                {price_display}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <a href="{booking_url}" target="_blank" style="text-decoration: none;">
+                                        <button style="
+                                            background: linear-gradient(135deg, #06B6D4 0%, #0EA5E9 100%);
+                                            color: white;
+                                            border: none;
+                                            padding: 8px 16px;
+                                            border-radius: 20px;
+                                            cursor: pointer;
+                                            font-weight: 500;
+                                            font-size: 0.9rem;
+                                            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                                            transition: all 0.3s ease;
+                                            white-space: nowrap;
+                                            margin-left: 12px;
+                                        ">
+                                            Book Now
+                                        </button>
+                                    </a>
                                 </div>
                             </div>
                         """, unsafe_allow_html=True)
-                else:
-                    st.warning("No hotels found in this area. Try expanding your search radius.")
             with tab2:
                 if attractions:
                     st.markdown(f'<h3 style = "text-align: center; color: #E2E8F0; margin-bottom: 1rem;">Must-See Attractions in {city.title()}</h3>', unsafe_allow_html=True)
@@ -502,17 +739,45 @@ if (query and search_btn) or (query and st.session_state.last_search != query):
                         """, unsafe_allow_html=True)
                 else:
                     st.warning("No activities found. Try searching for specific activities.")
-            with tab4:
-                st.markdown(f'<h3 style="text-align: center; color: #E2E8F0; margin-bottom: 1rem;">{city.title()} on the Map</h3>', unsafe_allow_html=True)
-                st.map(data={"lat": [lat], "lon": [lon]}, zoom=12)
+                
+            with tab4:  # Your map view tab
+                st.markdown(f'<h3 style="text-align: center; color: #E2E8F0;">{city.title()} Weather & Map</h3>', unsafe_allow_html=True)
+
+                # Get weather data
+                weather = get_weather(lat, lon)
+
+                col1, col2 = st.columns([3, 1])
+
+                with col1:
+                    st.map(data={"lat": [lat], "lon": [lon]}, zoom=12)
+
+                with col2:
+                    if weather:
+                        st.markdown(f"""
+                            <div class="weather-card">
+                                <div style="display: flex; align-items: baseline; gap: 8px;">
+                                    <h2 style="color: #E2E8F0; margin: 0; font-size: 1.8rem;">{weather['temp']}°C</h2>
+                                    <span style="color: #94A3B8;">• Feels {weather['feels_like']}°C</span>
+                                </div>
+                                <div style="display: flex; gap: 10px; margin-top: 4px;">
+                                    <span style="color: #94A3B8; display: flex; align-items: center;">
+                                        <i class="fas fa-tint" style="margin-right: 4px; color: #06B6D4;"></i>
+                                        {weather['humidity']}%
+                                    </span>
+                                    <span style="color: #94A3B8;">• {weather['weather']}</span>
+                                </div>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.warning("Weather data unavailable")
         else:
             st.error("We couldn't find that location. Please try a different city or spelling.")
 st.markdown("""
     <div class="footer">
         <div class="footer-content">
-            <a href="#">Jhanvi (xxxxxxxx)</a>
-            <a href="#">Aditya (xxxxxxxx)</a>
-            <a href="#">Riya (xxxxxxxx)</a>
+            <a href="#">Jhanvi (12313385)</a>
+            <a href="#">Aditya (12315154)</a>
+            <a href="#">Riya (12307983)</a>
         </div>
     </div>
 """, unsafe_allow_html=True)
