@@ -8,6 +8,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 import os
 from streamlit.components.v1 import html
+from flask import Flask, request, jsonify
+import json
 
 load_dotenv()
 GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
@@ -18,7 +20,7 @@ OPENWEATHER_API_KEY = "422ad25405fe35755a3906cf0bb88ea7"
 # Page configuration with travel theme
 st.set_page_config(
     page_title="TripWiz",
-    page_icon="tripwiz_icon.png",
+    page_icon= "tripwiz_icon.png",
     layout="centered",
     initial_sidebar_state="expanded"
 )
@@ -695,16 +697,37 @@ def extract_city(query):
 
 def detect_search_intent(query):
     query = query.lower()
-    if "things to do" in query or "activities" in query or "explore" in query:
+    if "restaurant" in query or "cafe" in query or "dining" in query or "eat" in query or "food" in query:
+        return ("dining", "finding dining options")
+    elif "things to do" in query or "activities" in query or "explore" in query:
         return ("activities", "finding fun activities")
     elif "attractions" in query or "places to see" in query or "sightseeing" in query:
         return ("attractions", "discovering top attractions") 
     elif "where is" in query or "map" in query or "location" in query:
         return ("map", "locating on map")
-    elif "hotel" in query or "stay" in query or "accommodation" in query:
+    elif "hotel" in query or "stay" in query or "accommodation" in query or "resort" in query:
         return ("hotels", "searching for hotels")
     else:
-        return ("hotels", "exploring travel options")  # Default
+        return ("general", "exploring options")  # Default
+    
+
+def get_restaurants(lat, lon):
+    types = ["restaurant", "cafe", "bar", "bakery", "food"]
+    all_places = []
+    for place_type in types:
+        url = f"https://maps.googleapis.com/maps/api/place/nearbysearch/json?location={lat},{lon}&radius=5000&type={place_type}&key={GOOGLE_API_KEY}"
+        res = requests.get(url).json()
+        if res["status"] == "OK":
+            all_places.extend(res.get("results", []))
+    
+    # Remove duplicates and sort by rating (highest first)
+    unique_places = list({p["place_id"]: p for p in all_places}.values())
+    return sorted(unique_places, key=lambda x: x.get("rating", 0), reverse=True)
+
+def get_hotels(lat, lon):
+    url = f"https://maps.googleapis.com/maps/api/place/nearbysearch/json?location={lat},{lon}&radius=10000&type=lodging&key={GOOGLE_API_KEY}"
+    res = requests.get(url).json()
+    return res.get("results", []) if res["status"] == "OK" else []
 
 # Main search functionality
 if (query and search_btn) or (query and st.session_state.last_search != query):
@@ -721,7 +744,10 @@ if (query and search_btn) or (query and st.session_state.last_search != query):
             st.session_state.history.append(f"{timestamp}: {query}")
 
             # Initialize results based on intent
-            if intent == "hotels":
+            if intent == "dining":
+                results = get_restaurants(lat, lon)
+                success_msg = f"🍽️ Found {len(results)} dining options in {city}"
+            elif intent == "hotels":
                 results = get_hotels(lat, lon)
                 success_msg = f"🏨 Found {len(results)} hotels in {city}"
             elif intent == "attractions":
@@ -730,52 +756,112 @@ if (query and search_btn) or (query and st.session_state.last_search != query):
             elif intent == "activities":
                 results = get_things_to_do(lat, lon)
                 success_msg = f"🎡 Found {len(results)} activities in {city}"
-            else:  # map
+            else:  # map or general
                 results = None
-                success_msg = f"🗺️ Located {city} on map"
+                success_msg = f"🗺️ Showing general results for {city}"
 
             st.success(success_msg)
-            # Create tabs with default tab based on intent
-            tab1, tab2, tab3, tab4 = st.tabs(["🏨 Hotels", "🗼 Attractions", "🎭 Activities", "🗺️ Map View"])
             
-            # Determine which tab to open first
-            default_tab = {
-                "hotels": 0,
-                "attractions": 1,
-                "activities": 2,
-                "map": 3
-            }.get(intent, 0)
+            # Create tabs - show dining tab when searching for restaurants/cafes
+            if intent == "dining":
+                tab1, tab2, tab3, tab4 = st.tabs(["🍽️ Dining", "🏨 Hotels", "🗼 Attractions", "🎭 Activities"])
+            else:
+                tab1, tab2, tab3, tab4 = st.tabs(["🏨 Hotels", "🗼 Attractions", "🎭 Activities", "🗺️ Map View"])
             
-            # Use JavaScript to select the appropriate tab
+            # JavaScript to select the appropriate tab
             html(f"""
             <script>
                 setTimeout(function() {{
+                    const tabMap = {{
+                        "hotels": 0,
+                        "dining": 0,
+                        "attractions": 1,
+                        "activities": 2,
+                        "map": 3
+                    }};
+                    
+                    const tabIndex = tabMap["{intent}"] || 0;
                     const tabs = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
-                    tabs[{["hotels", "attractions", "activities", "map"].index(intent)}].click();
+                    if (tabs.length > tabIndex) {{
+                        tabs[tabIndex].click();
+                    }}
                 }}, 100);
             </script>
-        """)
-            # In your hotels tab section (around line 340), modify the hotel card display code:
-            with tab1:
-                hotels = get_hotels(lat, lon) if intent != "hotels" else results
+            """)
+            
+            # DINING TAB (Tab1 when intent is dining)
+            if intent == "dining":
+                with tab1:
+                    if results:
+                        st.markdown(f'<h3 style="text-align: center; color: #E2E8F0; margin-bottom: 1rem;">🍽️ Dining Options in {city.title()}</h3>', unsafe_allow_html=True)
+                        for place in results[:10]:
+                            name = place["name"]
+                            address = place.get("vicinity", "Address not available")
+                            rating = place.get("rating", "N/A")
+                            price_level = place.get("price_level", 0)
+                            
+                            place_type = "🍽️ Restaurant" if "restaurant" in name.lower() else "☕ Cafe"
+                            price_display = "💲" * price_level if price_level > 0 else "💰 Price not available"
+                            search_query = urllib.parse.quote_plus(f"{name} {city}")
+                            details_url = f"https://www.google.com/search?q={search_query}"
+                            
+                            st.markdown(f"""
+                                <div class="card hotel-card" style="position: relative;">
+                                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                                        <div style="flex: 1;">
+                                            <h4 style="color: #28282B; margin-bottom: 8px;">{name}</h4>
+                                            <p style="color: #94A3B8; margin: 4px 0; font-size: 0.9rem;">📍 {address}</p>
+                                            <div style="display: flex; align-items: center; gap: 12px; margin-top: 8px;">
+                                                <span style="color: #94A3B8; font-size: 0.9rem;">
+                                                    ⭐ <span class="rating">{rating}</span>/5
+                                                </span>
+                                                <span style="color: #06B6D4; font-size: 0.9rem; font-weight: 500;">
+                                                    {place_type} • {price_display}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <a href="{details_url}" target="_blank" style="text-decoration: none;">
+                                            <button style="
+                                                background: linear-gradient(135deg, #06B6D4 0%, #0EA5E9 100%);
+                                                color: white;
+                                                border: none;
+                                                padding: 8px 16px;
+                                                border-radius: 20px;
+                                                cursor: pointer;
+                                                font-weight: 500;
+                                                font-size: 0.9rem;
+                                                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                                                transition: all 0.3s ease;
+                                                white-space: nowrap;
+                                            ">
+                                                View Details
+                                            </button>
+                                        </a>
+                                    </div>
+                                </div>
+                            """, unsafe_allow_html=True)
+                    else:
+                        st.warning("No dining options found. Try a different location.")
+            
+            # HOTELS TAB (Tab1 when intent is not dining)
+            with tab1 if intent != "dining" else tab2:
+                if intent == "hotels":
+                    hotels = results
+                else:
+                    hotels = get_hotels(lat, lon)
+                
                 if hotels:
-                    st.markdown(f'<h3 style="text-align: center; color: #E2E8F0; margin-bottom: 1rem;">Top Hotels in {city.title()}</h3>', unsafe_allow_html=True)
+                    st.markdown(f'<h3 style="text-align: center; color: #E2E8F0; margin-bottom: 1rem;">🏨 Hotels in {city.title()}</h3>', unsafe_allow_html=True)
                     for hotel in hotels[:10]:
                         name = hotel["name"]
                         address = hotel.get("vicinity", "Address not available")
                         rating = hotel.get("rating", "N/A")
-                        price_level = hotel.get("price_level", None)  # Get price level (1-4)
-
-                        # Handle price display
-                        if price_level is None:
-                            price_display = "💰 Price N/A"
-                        else:
-                            price_display = "💲" * price_level + "🔹" * (4 - price_level)  # Filled and empty indicators
-
-                        # Create booking URL
+                        price_level = hotel.get("price_level", None)
+                        
+                        price_display = "💲" * price_level + "🔹" * (4 - price_level) if price_level else "💰 Price N/A"
                         search_query = urllib.parse.quote_plus(f"{name} {city} hotel")
                         booking_url = f"https://www.google.com/travel/hotels?q={search_query}"
-
+                        
                         st.markdown(f"""
                             <div class="card hotel-card" style="position: relative;">
                                 <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -804,7 +890,6 @@ if (query and search_btn) or (query and st.session_state.last_search != query):
                                             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
                                             transition: all 0.3s ease;
                                             white-space: nowrap;
-                                            margin-left: 12px;
                                         ">
                                             Book Now
                                         </button>
@@ -812,7 +897,9 @@ if (query and search_btn) or (query and st.session_state.last_search != query):
                                 </div>
                             </div>
                         """, unsafe_allow_html=True)
-            with tab2:
+                else:
+                    st.warning("No hotels found. Try a different location.")
+            with tab2 if intent != "dining" else tab3:
                 attractions = get_attractions(lat, lon) if intent != "attractions" else results
                 if attractions:
                     st.markdown(f'<h3 style="text-align: center; color: #E2E8F0; margin-bottom: 1rem;">Must-See Attractions in {city.title()}</h3>', unsafe_allow_html=True)
@@ -854,7 +941,7 @@ if (query and search_btn) or (query and st.session_state.last_search != query):
                         """, unsafe_allow_html=True)
                 else:
                     st.warning("No attractions found. Try a different location or broader category.")
-            with tab3:
+            with tab3 if intent != "dining" else tab4:
                 things_to_do = get_things_to_do(lat, lon) if intent != "activities" else results
                 if things_to_do:
                     st.markdown(f'<h3 style="text-align: center; color: #E2E8F0; margin-bottom: 1rem;">Fun Activities in {city.title()}</h3>', unsafe_allow_html=True)
@@ -901,36 +988,37 @@ if (query and search_btn) or (query and st.session_state.last_search != query):
                 else:
                     st.warning("No activities found. Try searching for specific activities.")
                 
-            with tab4:  # Your map view tab
-                st.markdown(f'<h3 style="text-align: center; color: #E2E8F0;">{city.title()} Weather & Map</h3>', unsafe_allow_html=True)
-
-                # Get weather data
-                weather = get_weather(lat, lon)
-
-                col1, col2 = st.columns([3, 1])
-
-                with col1:
-                    st.map(data={"lat": [lat], "lon": [lon]}, zoom=12)
-
-                with col2:
-                    if weather:
-                        st.markdown(f"""
-                            <div class="weather-card">
-                                <div style="display: flex; align-items: baseline; gap: 8px;">
-                                    <h2 style="color: #E2E8F0; margin: 0; font-size: 1.8rem;">{weather['temp']}°C</h2>
-                                    <span style="color: #94A3B8;">• Feels {weather['feels_like']}°C</span>
+            with tab4:
+                if intent != "dining":  # Your map view tab
+                    st.markdown(f'<h3 style="text-align: center; color: #E2E8F0;">{city.title()} Weather & Map</h3>', unsafe_allow_html=True)
+    
+                    # Get weather data
+                    weather = get_weather(lat, lon)
+    
+                    col1, col2 = st.columns([3, 1])
+    
+                    with col1:
+                        st.map(data={"lat": [lat], "lon": [lon]}, zoom=12)
+    
+                    with col2:
+                        if weather:
+                            st.markdown(f"""
+                                <div class="weather-card">
+                                    <div style="display: flex; align-items: baseline; gap: 8px;">
+                                        <h2 style="color: #E2E8F0; margin: 0; font-size: 1.8rem;">{weather['temp']}°C</h2>
+                                        <span style="color: #94A3B8;">• Feels {weather['feels_like']}°C</span>
+                                    </div>
+                                    <div style="display: flex; gap: 10px; margin-top: 4px;">
+                                        <span style="color: #94A3B8; display: flex; align-items: center;">
+                                            <i class="fas fa-tint" style="margin-right: 4px; color: #06B6D4;"></i>
+                                            {weather['humidity']}%
+                                        </span>
+                                        <span style="color: #94A3B8;">• {weather['weather']}</span>
+                                    </div>
                                 </div>
-                                <div style="display: flex; gap: 10px; margin-top: 4px;">
-                                    <span style="color: #94A3B8; display: flex; align-items: center;">
-                                        <i class="fas fa-tint" style="margin-right: 4px; color: #06B6D4;"></i>
-                                        {weather['humidity']}%
-                                    </span>
-                                    <span style="color: #94A3B8;">• {weather['weather']}</span>
-                                </div>
-                            </div>
-                        """, unsafe_allow_html=True)
-                    else:
-                        st.warning("Weather data unavailable")
+                            """, unsafe_allow_html=True)
+                        else:
+                            st.warning("Weather data unavailable")
         else:
             st.error("We couldn't find that location. Please try a different city or spelling.")
 st.markdown("""
