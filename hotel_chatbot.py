@@ -638,23 +638,72 @@ def extract_city(query):
     else:
         city = query.strip()
     return city.title()
+
+def detect_search_intent(query):
+    query = query.lower()
+    if "things to do" in query or "activities" in query or "explore" in query:
+        return ("activities", "finding fun activities")
+    elif "attractions" in query or "places to see" in query or "sightseeing" in query:
+        return ("attractions", "discovering top attractions") 
+    elif "where is" in query or "map" in query or "location" in query:
+        return ("map", "locating on map")
+    elif "hotel" in query or "stay" in query or "accommodation" in query:
+        return ("hotels", "searching for hotels")
+    else:
+        return ("hotels", "exploring travel options")  # Default
+
 # Main search functionality
 if (query and search_btn) or (query and st.session_state.last_search != query):
     st.session_state.last_search = query
     city = extract_city(query)
-    with st.spinner(f"✈️ Discovering the best of {city}..."):
+    
+    # Get intent and action phrase
+    intent, action = detect_search_intent(query)
+    
+    with st.spinner(f"✈️ {action.capitalize()} in {city}..."):
         lat, lon = get_location(city)
         if lat and lon:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
             st.session_state.history.append(f"{timestamp}: {query}")
-            hotels = get_hotels(lat, lon)
-            attractions = get_attractions(lat, lon)
-            things_to_do = get_things_to_do(lat, lon)
-            st.success(f"✨ Found amazing places in **{city.capitalize()}**")
-            # Create tabs with travel icons
+
+            # Initialize results based on intent
+            if intent == "hotels":
+                results = get_hotels(lat, lon)
+                success_msg = f"🏨 Found {len(results)} hotels in {city}"
+            elif intent == "attractions":
+                results = get_attractions(lat, lon)
+                success_msg = f"🗽 Discovered {len(results)} attractions in {city}"
+            elif intent == "activities":
+                results = get_things_to_do(lat, lon)
+                success_msg = f"🎡 Found {len(results)} activities in {city}"
+            else:  # map
+                results = None
+                success_msg = f"🗺️ Located {city} on map"
+
+            st.success(success_msg)
+            # Create tabs with default tab based on intent
             tab1, tab2, tab3, tab4 = st.tabs(["🏨 Hotels", "🗼 Attractions", "🎭 Activities", "🗺️ Map View"])
+            
+            # Determine which tab to open first
+            default_tab = {
+                "hotels": 0,
+                "attractions": 1,
+                "activities": 2,
+                "map": 3
+            }.get(intent, 0)
+            
+            # Use JavaScript to select the appropriate tab
+            html(f"""
+            <script>
+                setTimeout(function() {{
+                    const tabs = window.parent.document.querySelectorAll('[data-baseweb="tab"]');
+                    tabs[{["hotels", "attractions", "activities", "map"].index(intent)}].click();
+                }}, 100);
+            </script>
+        """)
             # In your hotels tab section (around line 340), modify the hotel card display code:
             with tab1:
+                hotels = get_hotels(lat, lon) if intent != "hotels" else results
                 if hotels:
                     st.markdown(f'<h3 style="text-align: center; color: #E2E8F0; margin-bottom: 1rem;">Top Hotels in {city.title()}</h3>', unsafe_allow_html=True)
                     for hotel in hotels[:10]:
@@ -710,31 +759,89 @@ if (query and search_btn) or (query and st.session_state.last_search != query):
                             </div>
                         """, unsafe_allow_html=True)
             with tab2:
+                attractions = get_attractions(lat, lon) if intent != "attractions" else results
                 if attractions:
-                    st.markdown(f'<h3 style = "text-align: center; color: #E2E8F0; margin-bottom: 1rem;">Must-See Attractions in {city.title()}</h3>', unsafe_allow_html=True)
+                    st.markdown(f'<h3 style="text-align: center; color: #E2E8F0; margin-bottom: 1rem;">Must-See Attractions in {city.title()}</h3>', unsafe_allow_html=True)
                     for place in attractions[:10]:
                         name = place["name"]
                         rating = place.get("rating", "N/A")
+
+                        # Create Google Images search URL
+                        search_query = urllib.parse.quote_plus(f"{name} {city} attraction")
+                        images_url = f"https://www.google.com/search?q={search_query}&tbm=isch"
+
                         st.markdown(f"""
-                            <div class="card attraction-card">
-                                <h4 style="color: #28282B;">{name}</h4>
-                                <p style="color: #94A3B8;">⭐ <span class="rating">{rating}</span>/5</p>
+                            <div class="card attraction-card" style="position: relative;">
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <div>
+                                        <h4 style="color: #28282B;">{name}</h4>
+                                        <p style="color: #94A3B8;">⭐ <span class="rating">{rating}</span>/5</p>
+                                    </div>
+                                    <a href="{images_url}" target="_blank" style="text-decoration: none;">
+                                        <button style="
+                                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                            color: white;
+                                            border: none;
+                                            padding: 6px 12px;
+                                            border-radius: 16px;
+                                            cursor: pointer;
+                                            font-weight: 500;
+                                            font-size: 0.85rem;
+                                            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                                            transition: all 0.3s ease;
+                                            white-space: nowrap;
+                                            margin-left: 10px;
+                                        ">
+                                            View Photos
+                                        </button>
+                                    </a>
+                                </div>
                             </div>
                         """, unsafe_allow_html=True)
                 else:
                     st.warning("No attractions found. Try a different location or broader category.")
             with tab3:
+                things_to_do = get_things_to_do(lat, lon) if intent != "activities" else results
                 if things_to_do:
                     st.markdown(f'<h3 style="text-align: center; color: #E2E8F0; margin-bottom: 1rem;">Fun Activities in {city.title()}</h3>', unsafe_allow_html=True)
                     for place in things_to_do[:10]:
                         name = place["name"]
                         address = place.get("vicinity", "Address not available")
                         rating = place.get("rating", "N/A")
+
+                        # Create Google search URL for more info
+                        search_query = urllib.parse.quote_plus(f"{name} {city} activities")
+                        info_url = f"https://www.google.com/search?q={search_query}"
+
                         st.markdown(f"""
-                            <div class="card activity-card">
-                                <h4 style="color: #28282B;">{name}</h4>
-                                <p style="color: #94A3B8;">📍 {address}</p>
-                                <p style="color: #94A3B8;">⭐ <span class="rating">{rating}</span>/5</p>
+                            <div class="card activity-card" style="position: relative;">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                                    <div style="flex: 1;">
+                                        <h4 style="color: #28282B; margin-bottom: 5px;">{name}</h4>
+                                        <p style="color: #94A3B8; margin: 2px 0; font-size: 0.9rem;">📍 {address}</p>
+                                        <p style="color: #94A3B8; margin: 2px 0; font-size: 0.9rem;">⭐ <span class="rating">{rating}</span>/5</p>
+                                    </div>
+                                    <div style="display: flex; flex-direction: column; gap: 5px; margin-left: 10px;">
+                                        <a href="{info_url}" target="_blank" style="text-decoration: none;">
+                                            <button style="
+                                                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                                                color: white;
+                                                border: none;
+                                                padding: 6px 12px;
+                                                border-radius: 16px;
+                                                cursor: pointer;
+                                                font-weight: 500;
+                                                font-size: 0.85rem;
+                                                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                                                transition: all 0.3s ease;
+                                                white-space: nowrap;
+                                                width: 100%;
+                                            ">
+                                                More Info
+                                            </button>
+                                        </a>
+                                    </div>
+                                </div>
                             </div>
                         """, unsafe_allow_html=True)
                 else:
