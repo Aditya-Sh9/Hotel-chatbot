@@ -10,7 +10,8 @@ import os
 from streamlit.components.v1 import html
 
 load_dotenv()
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GOOGLE_API_KEY = st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
+
 
 OPENWEATHER_API_KEY = "422ad25405fe35755a3906cf0bb88ea7"
 
