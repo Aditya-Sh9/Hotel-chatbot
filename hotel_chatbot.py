@@ -17,11 +17,15 @@ OPENWEATHER_API_KEY = "422ad25405fe35755a3906cf0bb88ea7"
 
 # Page configuration with travel theme
 st.set_page_config(
-    page_title="✈️ Travel Companion",
-    page_icon="🌍",
+    page_title="TripWiz",
+    page_icon="tripwiz_icon.png",
     layout="centered",
     initial_sidebar_state="expanded"
 )
+
+st.markdown("""
+    <link rel="shortcut icon" href="https://cdn-icons-png.flaticon.com/512/761/761505.png" type="image/x-icon">
+""", unsafe_allow_html=True)
 
 # Add this near your other CSS/JS
 st.markdown("""
@@ -58,22 +62,19 @@ st.markdown("""
         }
         
         .mic-btn {
-            position: absolute !important;
-            right: 5px !important;  /* Increased from 12px for more left movement */
-            top: 70% !important;     /* Changed from 50% to move it down */
-            transform: translateY(-50%) !important;
-            background: transparent !important;
-            border: none !important;
-            color: #06B6D4 !important;
-            cursor: pointer !important;
-            font-size: 16px !important;
-            padding: 8px !important;
-            z-index: 2 !important;
-            transition: color 0.3s ease !important;
+            transition: all 0.3s ease !important;
+            border-radius: 50% !important;
+            width: 36px !important;
+            height: 36px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            top: 68% !important;
         }
         
         .mic-btn:hover {
-            color: #0EA5E9 !important;
+            background: rgba(6, 182, 212, 0.1) !important;
+            transform: translateY(-50%) scale(1.1) !important;
         }
         
         .mic-btn i {
@@ -437,7 +438,7 @@ st.markdown("""
 st.markdown("""
     <div style="text-align: center; margin-bottom: 2rem;">
         <h1 style="color: #E2E8F0; font-size: 2.5rem; margin-bottom: 0.5rem;">
-            ✈️ Travel Companion
+            TripWiz
         </h1>
         <p style="color: #06B6D4; font-size: 1.1rem;">
             Discover the world's best hotels, attractions, and hidden gems
@@ -458,7 +459,7 @@ with st.sidebar:
     st.markdown("""
         <div style="text-align: center; margin-bottom: 1.5rem;">
             <h3 style="color: #E2E8F0;">🌎 Travel Inspiration</h3>
-            <p style="color: #06B6D4;">Try searching for:</p>
+            <p style="color: #06B6D4; margin-top: 20px">Try searching for:</p>
         </div>
     """, unsafe_allow_html=True)
     cols = st.columns(2)
@@ -507,17 +508,33 @@ with st.container():
     )
 
     # ✅ 2. Inject mic button to fill that input using voice
+    # Replace your existing mic button injection code with this enhanced version:
     html("""
         <script>
             function injectMic() {
                 const container = window.parent.document.querySelector('[data-testid="stTextInput"]');
                 if (!container || container.querySelector('.mic-btn')) return;
-
+    
                 const micBtn = document.createElement('button');
                 micBtn.className = 'mic-btn';
                 micBtn.innerHTML = '<i class="fas fa-microphone"></i>';
                 micBtn.title = 'Click to speak';
-
+                
+                // Add pulse animation when active
+                const style = document.createElement('style');
+                style.textContent = `
+                    @keyframes pulse {
+                        0% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0.7); }
+                        70% { box-shadow: 0 0 0 10px rgba(6, 182, 212, 0); }
+                        100% { box-shadow: 0 0 0 0 rgba(6, 182, 212, 0); }
+                    }
+                    .mic-active {
+                        animation: pulse 1.5s infinite;
+                        color: #f43f5e !important;
+                    }
+                `;
+                document.head.appendChild(style);
+    
                 Object.assign(micBtn.style, {
                     position: 'absolute',
                     right: '10px',
@@ -529,20 +546,30 @@ with st.container():
                     color: '#06B6D4',
                     cursor: 'pointer',
                     zIndex: 10,
-                    padding: '0',
+                    padding: '8px',
                     margin: '0',
                     height: '100%',
                     display: 'flex',
                     alignItems: 'center',
-                    justifyContent: 'center'
+                    justifyContent: 'center',
+                    borderRadius: '50%',
+                    transition: 'all 0.3s ease'
                 });
-
+    
                 micBtn.onclick = () => {
                     const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
                     recognition.lang = 'en-US';
                     recognition.continuous = false;
                     recognition.interimResults = false;
-
+                    
+                    // Visual feedback when activated
+                    micBtn.classList.add('mic-active');
+                    
+                    recognition.onstart = function() {
+                        micBtn.innerHTML = '<i class="fas fa-microphone-alt" style="color: #f43f5e;"></i>';
+                        micBtn.style.backgroundColor = 'rgba(244, 63, 94, 0.1)';
+                    };
+    
                     recognition.onresult = function(event) {
                         let transcript = event.results[0][0].transcript.trim();
                         if (transcript.endsWith(".")) transcript = transcript.slice(0, -1);
@@ -555,22 +582,48 @@ with st.container():
                     
                         // Trigger React's input + focus/blur detection
                         input.dispatchEvent(new Event('input', { bubbles: true }));
-                        input.focus();     // 👈 Force focus
-                        input.blur();      // 👈 Force blur (Streamlit updates Python state here)
+                        input.focus();
+                        input.blur();
+                        
+                        // Visual feedback when done
+                        micBtn.classList.remove('mic-active');
+                        micBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+                        micBtn.style.backgroundColor = 'transparent';
                     };
-
-
-                    recognition.onerror = () => {
-                        alert("Speech recognition failed.");
+    
+                    recognition.onerror = function(event) {
+                        console.error('Speech recognition error', event.error);
+                        micBtn.classList.remove('mic-active');
+                        micBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+                        micBtn.style.backgroundColor = 'transparent';
+                        
+                        if (event.error === 'not-allowed') {
+                            alert('Microphone access was denied. Please allow microphone access to use this feature.');
+                        } else {
+                            alert("Speech recognition failed. Please try again.");
+                        }
                     };
-
-                    recognition.start();
+    
+                    recognition.onend = function() {
+                        micBtn.classList.remove('mic-active');
+                        micBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+                        micBtn.style.backgroundColor = 'transparent';
+                    };
+    
+                    try {
+                        recognition.start();
+                    } catch (e) {
+                        console.error('Recognition start failed:', e);
+                        micBtn.classList.remove('mic-active');
+                        micBtn.innerHTML = '<i class="fas fa-microphone"></i>';
+                        micBtn.style.backgroundColor = 'transparent';
+                    }
                 };
-
+    
                 container.style.position = 'relative';
                 container.appendChild(micBtn);
             }
-
+    
             document.addEventListener('DOMContentLoaded', injectMic);
             document.addEventListener('st:render', injectMic);
         </script>
