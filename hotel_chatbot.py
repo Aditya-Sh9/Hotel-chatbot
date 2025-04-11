@@ -1024,9 +1024,9 @@ if (query and search_btn) or (query and st.session_state.last_search != query):
 st.markdown("""
     <div class="footer">
         <div class="footer-content">
-            <a href="#">Jhanvi (12313385)</a>
-            <a href="#">Aditya (12315154)</a>
-            <a href="#">Riya (12307983)</a>
+            
+            <a href="#">Aditya </a>
+            
         </div>
     </div>
 """, unsafe_allow_html=True)
